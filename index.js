@@ -1,39 +1,68 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
-const fetch = require('node-fetch'); // Se estiver no Node 18+ pode usar o fetch nativo
+const fetch = require('node-fetch');
 
-const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
-    ]
-});
+class NdjLibrary {
+    constructor(config) {
+        this.token = config.token;
+        this.user = config.githubUser || 'pitocoofc';
+        this.repo = config.githubRepo || 'banco';
+        this.branch = config.branch || 'main';
+        
+        this.client = new Client({
+            intents: [
+                GatewayIntentBits.Guilds,
+                GatewayIntentBits.GuildMessages,
+                GatewayIntentBits.MessageContent
+            ]
+        });
+    }
 
-// CONFIGURAÇÃO DO SEU GITHUB
-const GITHUB_CONFIG = {
-    user: 'pitocoofc',
-    repo: 'banco',
-    branch: 'main'
-};
+    // Método para buscar o TXT no seu GitHub Raw
+    async getInfo(tema) {
+        const cleanKey = tema.toLowerCase().trim().replace(/\s+/g, '_');
+        const url = `https://raw.githubusercontent.com/${this.user}/${this.repo}/${this.branch}/${cleanKey}.txt`;
+        
+        try {
+            const res = await fetch(url);
+            return res.ok ? await res.text() : null;
+        } catch (e) {
+            return null;
+        }
+    }
 
-// FUNÇÃO SPARQL (CONHECIMENTO GLOBAL)
-async function fetchGlobalData(keyword) {
-    const formattedKey = keyword.charAt(0).toUpperCase() + keyword.slice(1).toLowerCase();
-    const sparqlQuery = `
-        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-        PREFIX dbo: <http://dbpedia.org/ontology/>
-        SELECT ?resumo WHERE {
-            ?entidade rdfs:label "${formattedKey}"@pt ;
-                      dbo:abstract ?resumo .
-            FILTER (lang(?resumo) = "pt")
-        } LIMIT 1
-    `;
-    const url = `https://dbpedia.org/sparql?query=${encodeURIComponent(sparqlQuery)}&format=json`;
+    // Inicia o bot e já configura o comando de busca
+    iniciar() {
+        this.client.on('ready', () => {
+            console.log(`✅ Ndj-lib Conectada! Bot: ${this.client.user.tag}`);
+            console.log(`📚 Repositório de Conhecimento: ${this.repo}`);
+        });
 
-    try {
-        const response = await fetch(url, { headers: { 'User-Agent': 'DiscordBot/1.0' } });
-        const data = await response.json();
-        return data.results.bindings.length > 0 ? data.results.bindings[0].resumo.value : null;
+        this.client.on('messageCreate', async (message) => {
+            if (message.author.bot || !message.content.startsWith('!saber')) return;
+
+            const termo = message.content.split(' ').slice(1).join(' ');
+            if (!termo) return message.reply("O que você deseja saber?");
+
+            const conteudo = await this.getInfo(termo);
+
+            if (conteudo) {
+                const embed = new EmbedBuilder()
+                    .setTitle(`📖 Ndj-Lib | ${termo.toUpperCase()}`)
+                    .setDescription(conteudo)
+                    .setColor('#2b2d31')
+                    .setFooter({ text: `Fonte: github.com/${this.user}/${this.repo}` });
+
+                return message.reply({ embeds: [embed] });
+            } else {
+                return message.reply("❌ Termo não encontrado no banco de dados.");
+            }
+        });
+
+        this.client.login(this.token);
+    }
+}
+
+module.exports = NdjLibrary;
     } catch (e) { return null; }
 }
 
